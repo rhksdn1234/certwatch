@@ -1,0 +1,160 @@
+import os
+from datetime import datetime, timezone
+import psycopg2
+from flask import Flask, request, redirect, url_for, render_template_string
+
+app = Flask(__name__)
+
+DB_HOST = os.environ.get("DB_HOST", "postgres")
+DB_NAME = os.environ.get("POSTGRES_DB", "certwatch")
+DB_USER = os.environ.get("POSTGRES_USER", "certwatch")
+DB_PASS = os.environ.get("POSTGRES_PASSWORD", "")
+
+
+def get_conn():
+    return psycopg2.connect(
+        host=DB_HOST, dbname=DB_NAME, user=DB_USER, password=DB_PASS
+    )
+
+
+TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CertWatch</title>
+  <style>
+    body { font-family: -apple-system, 'Segoe UI', sans-serif; background:#f5f6f8;
+           color:#222; max-width:760px; margin:40px auto; padding:0 16px; }
+    h1 { font-size:22px; }
+    form.add { display:flex; gap:8px; margin-bottom:24px; }
+    form.add input { flex:1; padding:10px; border:1px solid #ccc; border-radius:6px; }
+    form.add button { padding:10px 18px; border:0; border-radius:6px;
+                      background:#2d6cdf; color:#fff; cursor:pointer; }
+    table { width:100%; border-collapse:collapse; background:#fff;
+            border-radius:8px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+    th, td { padding:12px 14px; text-align:left; border-bottom:1px solid #eee; }
+    th { background:#fafafa; font-size:13px; color:#666; }
+    .badge { padding:3px 10px; border-radius:12px; font-size:13px; font-weight:600; }
+    .danger { background:#fdecea; color:#c0392b; }
+    .warn   { background:#fff4e5; color:#d35400; }
+    .safe   { background:#eafaf1; color:#1e8449; }
+    .pending { background:#eee; color:#888; }
+    .del-btn { background:none; border:0; color:#c0392b; cursor:pointer; font-size:14px; }
+    .del-btn:hover { text-decoration:underline; }
+  </style>
+</head>
+<body>
+  <h1>CertWatch - SSL 인증서 만료 감시</h1>
+
+  <form class="add" method="post" action="{{ url_for('add_domain') }}">
+    <input name="domain" placeholder="예: example.com" required>
+    <button type="submit">도메인 추가</button>
+  </form>
+
+  <table>
+    <tr>
+      <th>도메인</th><th>만료일</th><th>남은 일수</th><th>마지막 체크</th><th></th>
+    </tr>
+    {% for d in domains %}
+    <tr>
+      <td>{{ d.domain }}</td>
+      <td>{{ d.expires_str }}</td>
+      <td>
+        {% if d.days is none %}
+          <span class="badge pending">체크 대기중</span>
+        {% else %}
+          <span class="badge {{ d.level }}">{{ d.days }}일</span>
+        {% endif %}
+      </td>
+      <td>{{ d.checked_str }}</td>
+      <td>
+        <form method="post" action="{{ url_for('delete_domain') }}"
+              onsubmit="return confirm('{{ d.domain }} 삭제할까요?');">
+          <input type="hidden" name="id" value="{{ d.id }}">
+          <button type="submit" class="del-btn">삭제</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    {% if not domains %}
+    <tr><td colspan="5" style="text-align:center;color:#999;">등록된 도메인이 없습니다.</td></tr>
+    {% endif %}
+  </table>
+</body>
+</html>
+"""
+
+
+def classify(days):
+    if days is None:
+        return None
+    if days <= 7:
+        return "danger"
+    if days <= 30:
+        return "warn"
+    return "safe"
+
+
+@app.route("/")
+def index():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, domain, expires_at, last_checked FROM domains ORDER BY expires_at ASC NULLS LAST, domain"
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    now = datetime.now(timezone.utc)
+    domains = []
+    for r in rows:
+        did, domain, expires_at, last_checked = r
+        if expires_at:
+            exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
+            days = (exp - now).days
+            expires_str = expires_at.strftime("%Y-%m-%d")
+        else:
+            days = None
+            expires_str = "-"
+        domains.append({
+            "id": did,
+            "domain": domain,
+            "days": days,
+            "level": classify(days),
+            "expires_str": expires_str,
+            "checked_str": last_checked.strftime("%Y-%m-%d %H:%M") if last_checked else "-",
+        })
+    return render_template_string(TEMPLATE, domains=domains)
+
+
+@app.route("/add", methods=["POST"])
+def add_domain():
+    domain = request.form.get("domain", "").strip().lower()
+    if domain:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO domains (domain) VALUES (%s)", (domain,))
+        conn.commit()
+        cur.close()
+        conn.close()
+    return redirect(url_for("index"))
+
+
+@app.route("/delete", methods=["POST"])
+def delete_domain():
+    domain_id = request.form.get("id")
+    if domain_id:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM domains WHERE id = %s", (domain_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+    return redirect(url_for("index"))
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
