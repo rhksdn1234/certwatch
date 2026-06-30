@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+      - name: api
+        image: python:3.11-slim
+        command: ["/bin/sh", "-c"]
+        args:
+          - pip install flask psycopg2-binary && python /app/app.py
+        ports:
+        - containerPort: 5000
+        envFrom:
+        - secretRef:
+            name: postgres-secret
+        volumeMounts:
+        - name: code
+          mountPath: /app
+      volumes:
+      - name: code
+        configMap:
+          name: api-code
