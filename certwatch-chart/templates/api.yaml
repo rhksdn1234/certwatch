@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: api
 spec:
-  replicas: 1
+  replicas: {{ .Values.api.replicas }}
   selector:
     matchLabels:
       app: api
@@ -14,19 +14,19 @@ spec:
     spec:
       containers:
       - name: api
-        image: python:3.11-slim
+        image: {{ .Values.api.image }}
         command: ["/bin/sh", "-c"]
         args:
           - pip install flask psycopg2-binary && python /app/app.py
         ports:
-        - containerPort: 5000
+        - containerPort: {{ .Values.api.port }}
         envFrom:
         - secretRef:
-            name: postgres-secret
+            name: {{ .Values.secretName }}
         volumeMounts:
         - name: code
           mountPath: /app
       volumes:
       - name: code
         configMap:
-          name: api-code
+          name: {{ .Values.codeConfigMap }}

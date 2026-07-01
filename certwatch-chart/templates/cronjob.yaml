@@ -3,7 +3,7 @@ kind: CronJob
 metadata:
   name: ssl-checker
 spec:
-  schedule: "0 * * * *"
+  schedule: "{{ .Values.cronjob.schedule }}"
   jobTemplate:
     spec:
       template:
@@ -11,18 +11,17 @@ spec:
           restartPolicy: OnFailure
           containers:
           - name: checker
-            image: python:3.11-slim
+            image: {{ .Values.api.image }}
             command: ["/bin/sh", "-c"]
             args:
               - pip install psycopg2-binary && python /app/checker.py
             envFrom:
             - secretRef:
-                name: postgres-secret
+                name: {{ .Values.secretName }}
             volumeMounts:
             - name: code
               mountPath: /app
           volumes:
           - name: code
             configMap:
-              name: checker-code
-
+              name: {{ .Values.checkerCodeConfigMap }}

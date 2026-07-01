@@ -8,10 +8,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - certwatch.local
-    secretName: certwatch-tls
+    - {{ .Values.ingress.host }}
+    secretName: {{ .Values.ingress.tlsSecret }}
   rules:
-  - host: certwatch.local
+  - host: {{ .Values.ingress.host }}
     http:
       paths:
       - path: /
@@ -20,4 +20,4 @@ spec:
           service:
             name: api
             port:
-              number: 5000
+              number: {{ .Values.api.port }}

@@ -14,12 +14,12 @@ spec:
     spec:
       containers:
       - name: postgres
-        image: postgres:16
+        image: {{ .Values.postgres.image }}
         ports:
         - containerPort: 5432
         envFrom:
         - secretRef:
-            name: postgres-secret
+            name: {{ .Values.secretName }}
         volumeMounts:
         - name: postgres-storage
           mountPath: /var/lib/postgresql/data
